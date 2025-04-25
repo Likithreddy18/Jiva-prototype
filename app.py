@@ -1,7 +1,8 @@
 import streamlit as st
 import pira_agent as pa            # your logic module
 
-st.set_page_config("Jiva-ai", "🤖", layout="centered")
+st.set_page_config("Jiva-ai", "🤖", layout="centered") 
+st.markdown(""" <style> /* only inside chat bubbles produced by st.chat_message */ .chat-message p {margin:0 0 1em; line-height:1.55;} .chat-message strong {color:#ffd166;} /* nice amber for numbers */ .chat-message em {font-style:normal;} /* disable italics app-wide */ </style> """, unsafe_allow_html=True)
 
 # ── initialise session state ─────────────────────────────────────────
 if "history"   not in st.session_state:
@@ -69,6 +70,8 @@ if raw:                                        # user pressed Enter
             answer = f"❌ **Error**: {e}"
 
     # 5️⃣ display final assistant message
+    # existing call
+                    # ← new
     wait.markdown(answer, unsafe_allow_html=True)
     st.session_state.history.append({"role":"assistant","content":answer})
     st.session_state.last_user = user_msg     # remember last
