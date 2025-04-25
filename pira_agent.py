@@ -162,43 +162,92 @@ def solve_horizon_lp(months:List[str], params:dict):
 # 2.  Agent blocks  (Forecaster still ➜ pass-through)
 # ---------------------------------------------------------------------
 import re, difflib
+# pira_agent.py  – put near the top of the file
+# -------------------------------------------------------------
+# OpenAI "function-calling" schema for the orchestrator LLM
+# -------------------------------------------------------------
 function_def = {
     "name": "route_question",
-    "description": "Classify the user request as either a supply-chain scenario "
-                   "or a small-talk message.  For scenarios, extract the knobs.",
+    "description": (
+        "Classify the user's request. "
+        "If it changes demand, supplier capacity, or transport mode "
+        "return kind='scenario' and only the parameters that changed. "
+        "Otherwise return kind='chat'."
+    ),
+
+    # JSON-Schema description of the single argument object
     "parameters": {
         "type": "object",
         "properties": {
+
+            # mandatory field
             "kind": {
                 "type": "string",
                 "enum": ["scenario", "chat"]
             },
-            "params": {          # present only when kind == scenario
+
+            # present only when kind == "scenario"
+            "params": {
                 "type": "object",
                 "properties": {
+
+                    # e.g. {"Store_West": 1.1}
                     "demand_multiplier": {
                         "type": "object",
-                        "description": "Per-store multipliers, e.g. {\"Store_West\":1.1}"
+                        "additionalProperties": {"type": "number"}
                     },
+
+                    # e.g. {"2": -5000}
                     "supplier_cap_delta": {
                         "type": "object",
-                        "description": "Capacity deltas per supplier, e.g. {2:-5000}"
+                        "additionalProperties": {"type": "number"}
                     },
+
+                    # "auto" = keep default; one of the other
+                    # options overrides the transport choice
                     "outbound_mode": {
                         "type": "string",
                         "enum": ["auto", "van", "reefer"]
                     }
                 },
-                "required": []
+
+                # 🚩  require at least *one* property so we
+                #     never get an empty params object
+                "minProperties": 1
             },
-            "text": {             # present only when kind == chat
+
+            # present only when kind == "chat"
+            "text": {
                 "type": "string"
             }
         },
+
+        # only 'kind' is always required,
+        # the others depend on the value of kind
         "required": ["kind"]
     }
 }
 
+SYSTEM_PROMPT = """
+You are a supply-chain router. Read the user’s natural-language request
+and decide:
+
+* If it’s a WHAT-IF (demand, supplier capacity, transport mode), output
+  kind:"scenario" and fill the params object with only the knobs that
+  changed.
+
+* Otherwise output kind:"chat" and put the original text into "text".
+
+Examples you MUST imitate exactly:
+User: "Increase demand at Store West by 10 %"
+→ {"kind":"scenario","params":{"demand_multiplier":{"Store_West":1.1}}}
+
+User: "Supplier 2 can only provide half the quantity"
+→ {"kind":"scenario","params":{"supplier_cap_delta":{"2":-5000}}}
+
+User: "Hi, how are you?"
+→ {"kind":"chat","text":"Hi, how are you?"}
+"""
 
 STORES = ["Store_West", "Store_Central", "Store_South"]
 
@@ -216,17 +265,13 @@ def orchestrator_llm(user_msg: str) -> dict:
         model="gpt-3.5-turbo-1106",
         temperature=0,
         messages=[
-            {"role":"system",
-             "content":(
-                 "You are a routing assistant for a perishable supply-chain demo. "
-                 "If the user is asking a what-if (demand change, transport mode, "
-                 "supplier capacity) output kind='scenario' and the appropriate "
-                 "params.  Otherwise output kind='chat'.")},
-            {"role":"user", "content": user_msg}
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": user_msg}
         ],
         functions=[function_def],
-        function_call={"name":"route_question"}    # force JSON output
+        function_call={"name": "route_question"}
     )
+
 
     tool_msg = resp.choices[0].message
     if tool_msg.function_call and tool_msg.function_call.arguments:
@@ -240,7 +285,7 @@ def orchestrator_llm(user_msg: str) -> dict:
                 p.get("outbound_mode", "auto") == "auto"
             )
             if no_knobs:
-                # Treat as chit-chat / follow-up because nothing actionable
+                # Treat as chit-chat/follow-up because nothing actionable
                 return {"kind": "chat", "text": user_msg}
 
         return payload
