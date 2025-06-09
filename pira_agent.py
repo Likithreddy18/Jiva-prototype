@@ -255,22 +255,37 @@ def _closest_store(raw: str) -> str | None:
     """Fuzzy-match a user token to our store list."""
     cand = difflib.get_close_matches(raw.title().replace(" ", "_"), STORES, n=1, cutoff=0.6)
     return cand[0] if cand else None
-from openai import OpenAI
 import os, json
 
-client = OpenAI()
 
 def orchestrator_llm(user_msg: str) -> dict:
-    resp = client.chat.completions.create(
-        model="gpt-3.5-turbo-1106",
-        temperature=0,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_msg}
-        ],
-        functions=[function_def],
-        function_call={"name": "route_question"}
-    )
+    """Route a question using OpenAI function calling if available."""
+    if OpenAI is None and openai is None:
+        return {"kind": "chat", "text": user_msg}
+
+    if OpenAI is not None:
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model="gpt-3.5-turbo-1106",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg}
+            ],
+            functions=[function_def],
+            function_call={"name": "route_question"}
+        )
+    else:
+        resp = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo-1106",
+            temperature=0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": user_msg}
+            ],
+            functions=[function_def],
+            function_call={"name": "route_question"}
+        )
 
 
     tool_msg = resp.choices[0].message
